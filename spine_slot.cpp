@@ -4,11 +4,13 @@
 SpineSlot::SpineSlot() {
 	this->spine = NULL;
 	this->slot = NULL;
+	this->nm_slot = NULL;
 }
 
 SpineSlot::~SpineSlot() {
 	this->spine = NULL;
 	this->slot = NULL;
+	this->nm_slot = NULL;
 }
 
 
@@ -18,7 +20,7 @@ void SpineSlot::_bind_methods() {
 void SpineSlot::_notification(int p_what) {
 
 	switch (p_what) {
-		case NOTIFICATION_DRAW: {
+		case CanvasItem::NOTIFICATION_DRAW: {
 			_draw();
 		} break;
 	}

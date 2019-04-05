@@ -174,11 +174,27 @@ static void spine_free(void *ptr) {
 
 class ResourceFormatLoaderSpine : public ResourceFormatLoader {
 public:
+	ResourceFormatLoaderSpine() {
+#ifdef DEBUG_ENABLED
+		print_line("Spine: ResourceFormatLoaderSpine constructed");
+#endif
+	}
+
+	~ResourceFormatLoaderSpine() {
+#ifdef DEBUG_ENABLED
+		print_line("Spine: ResourceFormatLoaderSpine destructed");
+#endif
+	}
+
 
 	virtual RES load(const String &p_path, const String& p_original_path = "", Error *p_err=NULL) {
+#ifdef DEBUG_ENABLED
 		float start = OS::get_singleton()->get_ticks_msec();
+#endif
+
 		Spine::SpineResource *res = memnew(Spine::SpineResource);
 		Ref<Spine::SpineResource> ref(res);
+
 		String p_atlas = p_path.get_basename() + ".atlas";
 		res->atlas = spAtlas_createFromFile(p_atlas.utf8().get_data(), 0);
 		ERR_FAIL_COND_V(res->atlas == NULL, RES());
@@ -192,6 +208,35 @@ public:
 			spSkeletonJson_dispose(json);
 			ERR_EXPLAIN(json->error);
 			ERR_FAIL_COND_V(res->data == NULL, RES());
+
+			String nm_atlas_dir = p_atlas.get_base_dir();
+			String nm_atlas_file = "nm_" + p_atlas.get_file();
+			String nm_atlas = nm_atlas_dir.plus_file(nm_atlas_file);
+			if (FileAccess::exists(nm_atlas)) {
+				res->nm_atlas = spAtlas_createFromFile(nm_atlas.utf8().get_data(), 0);
+				ERR_FAIL_COND_V(res->nm_atlas == NULL, RES());
+
+				spSkeletonJson *nm_json = spSkeletonJson_create(res->nm_atlas);
+				ERR_FAIL_COND_V(nm_json == NULL, RES());
+
+				nm_json->scale = 1;
+
+				res->nm_data = spSkeletonJson_readSkeletonDataFile(nm_json, p_path.utf8().get_data());
+
+				spSkeletonJson_dispose(nm_json);
+				ERR_EXPLAIN(nm_json->error);
+				ERR_FAIL_COND_V(res->nm_data == NULL, RES());
+
+#ifdef DEBUG_ENABLED
+				print_line("Normal map found " + nm_atlas + " and loaded");
+#endif
+			} else {
+				res->nm_atlas = NULL;
+				res->nm_data = NULL;
+#ifdef DEBUG_ENABLED
+				print_line("No normal map found " + nm_atlas);
+#endif
+			}
 		} else {
 			spSkeletonBinary* bin  = spSkeletonBinary_create(res->atlas);
 			ERR_FAIL_COND_V(bin == NULL, RES());
@@ -203,8 +248,10 @@ public:
 		}
 
 		res->set_path(p_path);
+#ifdef DEBUG_ENABLED
 		float finish = OS::get_singleton()->get_ticks_msec();
-		// print_line("Spine resource (" + p_path + ") loaded in " + itos(finish-start) + " msecs");
+		print_line("Spine resource (" + p_path + ") loaded in " + itos(finish-start) + " msecs");
+#endif
 		return ref;
 	}
 

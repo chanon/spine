@@ -67,6 +67,9 @@ public:
 
 		spAtlas *atlas;
 		spSkeletonData *data;
+
+		spAtlas *nm_atlas;
+		spSkeletonData *nm_data;
 	};
 
 private:
@@ -76,6 +79,9 @@ private:
 	spBone* root_bone;
 	spAnimationState* state;
 	mutable Vector<float> world_verts;
+
+	spSkeleton* nm_skeleton;
+	spAnimationState* nm_state;
 
 	float speed_scale;
 	String autoplay;

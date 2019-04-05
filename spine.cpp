@@ -44,6 +44,9 @@ Spine::SpineResource::SpineResource() {
 
 	atlas = NULL;
 	data = NULL;
+
+	nm_atlas = NULL;
+	nm_data = NULL;
 }
 
 Spine::SpineResource::~SpineResource() {
@@ -53,6 +56,12 @@ Spine::SpineResource::~SpineResource() {
 
 	if (data != NULL)
 		spSkeletonData_dispose(data);
+
+	if (nm_atlas != NULL)
+		spAtlas_dispose(nm_atlas);
+
+	if (nm_data != NULL)
+		spSkeletonData_dispose(nm_data);
 }
 
 Array *Spine::invalid_names = NULL;
@@ -98,10 +107,20 @@ void Spine::_spine_dispose() {
 		stop();
 	}
 
-	if (state) {
+	//print_line(String("state ") + (state == 0x0 ? String("null") : String("not null")));
+	//print_line(String("nm_state ") + (nm_state == 0x0 ? String("null") : String("not null")));
+	if (nm_state) {
+		spAnimationStateData_dispose(nm_state->data);
+		spAnimationState_dispose(nm_state);
+	}
 
+	if (state) {
 		spAnimationStateData_dispose(state->data);
 		spAnimationState_dispose(state);
+	}
+
+	if (nm_skeleton) {
+		spSkeleton_dispose(nm_skeleton);
 	}
 
 	if (skeleton)
@@ -109,6 +128,10 @@ void Spine::_spine_dispose() {
 
 	state = NULL;
 	skeleton = NULL;
+
+	nm_state = NULL;
+	skeleton = NULL;
+
 	res = RES();
 
 	for (AttachmentNodes::Element *E = attachment_nodes.front(); E; E = E->next()) {
@@ -150,6 +173,7 @@ void Spine::draw_slot(SpineSlot *spine_slot) {
 		return;
 
 	auto slot = spine_slot->slot;
+	auto nm_slot = spine_slot->nm_slot;
 
 	if (!slot->attachment)
 		return;
@@ -169,12 +193,16 @@ void Spine::draw_slot(SpineSlot *spine_slot) {
 
 	bool is_fx = false;
 	Ref<Texture> texture;
+	Ref<Texture> nm_texture;
 
 	switch (slot->attachment->type) {
 
 		case SP_ATTACHMENT_REGION: {
 			spRegionAttachment *attachment = (spRegionAttachment *)slot->attachment;
 			is_fx = strstr(attachment->path, fx_prefix) != NULL;
+
+			spRegionAttachment *nm_attachment = NULL;
+			if (nm_slot) nm_attachment = (spRegionAttachment *)nm_slot->attachment;
 
 			// get points from Spine (2 pairs of x/ys for 4 points)
 			float spPoints[10];
@@ -184,6 +212,8 @@ void Spine::draw_slot(SpineSlot *spine_slot) {
 			// get texture and uvs from Spine
 			texture = spine_get_texture(attachment);
 			const float *spUVs = attachment->uvs;
+
+			if (nm_attachment) nm_texture = spine_get_texture(nm_attachment);
 
 			// the indices are fixed
 			static int spIndices[6] = { 0, 1, 2, 2, 3, 0 };
@@ -208,24 +238,29 @@ void Spine::draw_slot(SpineSlot *spine_slot) {
 				p_colors.push_back(color);
 				p_uvs.push_back(Vector2(spUVs[atPoint], spUVs[atPoint + 1]));
 			}
-			
+
 			Vector<int> p_indices;
 			p_indices.resize(spIndicesCount);
 			memcpy(p_indices.ptrw(), spIndices, spIndicesCount * sizeof(int));
-			
+
 			VisualServer::get_singleton()->canvas_item_add_triangle_array(spine_slot->get_canvas_item(),
 					p_indices,
 					p_points,
 					p_colors,
 					p_uvs,
-					Vector<int>(),
-					Vector<float>(),
-					texture->get_rid());
+					Vector<int>(),    // bones
+					Vector<float>(),  // weights
+					texture->get_rid(),
+					-1,               // int p_count = -1
+					nm_texture.is_null() ? RID() : nm_texture->get_rid());
 			break;
 		}
 		case SP_ATTACHMENT_MESH: {
 			spMeshAttachment *attachment = (spMeshAttachment *)slot->attachment;
 			is_fx = strstr(attachment->path, fx_prefix) != NULL;
+
+			spMeshAttachment *nm_attachment = NULL;
+			if (nm_slot) nm_attachment = (spMeshAttachment *)nm_slot->attachment;
 
 			// get points from Spine (2 pairs of x/ys for 4 points)
 			spVertexAttachment_computeWorldVertices(SUPER(attachment), slot, 0, attachment->super.worldVerticesLength, world_verts.ptrw(), 0, 2);
@@ -235,6 +270,8 @@ void Spine::draw_slot(SpineSlot *spine_slot) {
 			// get texture and uvs from Spine
 			texture = spine_get_texture(attachment);
 			const float *spUVs = attachment->uvs;
+
+			if (nm_attachment) nm_texture = spine_get_texture(nm_attachment);
 
 			// the indices are fixed
 			unsigned short *spIndices = attachment->triangles;
@@ -270,9 +307,11 @@ void Spine::draw_slot(SpineSlot *spine_slot) {
 					p_points,
 					p_colors,
 					p_uvs,
-					Vector<int>(),
-					Vector<float>(),
-					texture->get_rid());
+					Vector<int>(),    // bones
+					Vector<float>(),  // weights
+					texture->get_rid(),
+					-1,               // int p_count = -1
+					nm_texture.is_null() ? RID() : nm_texture->get_rid());
 			break;
 		}
 
@@ -513,7 +552,7 @@ bool Spine::_set(const StringName &p_name, const Variant &p_value) {
 				stop();
 			else if (has_animation(which)) {
 				reset();
-				play(which, 1, loop);
+				play(which, loop);
 			}
 		} else
 			current_animation = which;
@@ -528,7 +567,7 @@ bool Spine::_set(const StringName &p_name, const Variant &p_value) {
 
 		loop = p_value;
 		if (skeleton != NULL && has_animation(current_animation))
-			play(current_animation, 1, loop);
+			play(current_animation, loop);
 	} else if (name == "playback/forward") {
 
 		forward = p_value;
@@ -669,7 +708,7 @@ void Spine::_notification(int p_what) {
 			if (processing) {
 				_animation_process(get_process_delta_time());
 				_update_children();
-			}	
+			}
 		} break;
 		case NOTIFICATION_PHYSICS_PROCESS: {
 
@@ -680,7 +719,7 @@ void Spine::_notification(int p_what) {
 				_animation_process(get_physics_process_delta_time());
 				_update_children();
 			}
-				
+
 		} break;
 
 		case NOTIFICATION_DRAW: {
@@ -724,6 +763,16 @@ void Spine::set_resource(Ref<Spine::SpineResource> p_data) {
 	state->rendererObject = this;
 	state->listener = spine_animation_callback;
 
+	if (res->nm_data) {
+		nm_skeleton = spSkeleton_create(res->nm_data);
+
+		nm_state = spAnimationState_create(spAnimationStateData_create(nm_skeleton->data));
+		nm_state->rendererObject = this;
+		nm_state->listener = spine_animation_callback;
+	} else {
+		nm_skeleton = NULL;
+	}
+
 	_update_verties_count();
 
 	// update children slots
@@ -736,10 +785,15 @@ void Spine::set_resource(Ref<Spine::SpineResource> p_data) {
 	}
 
 	// add new slots children
+	if (nm_skeleton)
+		ERR_FAIL_COND(nm_skeleton->slotsCount != skeleton->slotsCount);
+
 	for (int i = 0, n = skeleton->slotsCount; i < n; i++) {
 		spSlot *slot = skeleton->drawOrder[i];
+		spSlot *nm_slot = NULL;
+		if (nm_skeleton) nm_slot = nm_skeleton->drawOrder[i];
 		auto slot_node = memnew(SpineSlot);
-		slot_node->init(this, slot);
+		slot_node->init(this, slot, nm_slot);
 		slot_node->set_name(slot->data->name);
 		slot_node->set_z_index(i);
 		add_child(slot_node);
@@ -749,7 +803,7 @@ void Spine::set_resource(Ref<Spine::SpineResource> p_data) {
 	if (skin != "")
 		set_skin(skin);
 	if (current_animation != "[stop]")
-		play(current_animation, 1, loop);
+		play(current_animation, loop);
 	else
 		reset();
 
@@ -1482,8 +1536,10 @@ Spine::Spine()
 	: batcher(this), fx_node(memnew(Node2D)), fx_batcher(fx_node) {
 
 	skeleton = NULL;
+	nm_skeleton = NULL;
 	root_bone = NULL;
 	state = NULL;
+	nm_state = NULL;
 	res = RES();
 	world_verts.resize(1000); // Max number of vertices per mesh.
 	memset(world_verts.ptrw(), 0, world_verts.size() * sizeof(float));

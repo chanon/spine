@@ -1,6 +1,10 @@
 #pragma once
 
+#include "scene/2d/canvas_item.h"
+#include "core/print_string.h"
 #include "spine.h"
+
+#include <stddef.h>
 
 class SpineSlot : public Node2D {
 	GDCLASS(SpineSlot, Node2D);
@@ -16,10 +20,12 @@ protected:
 
 public:
 	spSlot *slot;
+	spSlot *nm_slot;
 
-	void init(Spine *spine, spSlot *slot) {
+	void init(Spine *spine, spSlot *slot, spSlot *nm_slot) {
 		this->spine = spine;
 		this->slot = slot;
+		this->nm_slot = nm_slot;
 	}
 
 	SpineSlot();
